@@ -423,6 +423,134 @@
             display: block;
         }
 
+        .chat-window {
+            position: relative;
+        }
+
+        .chat-compose {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chat-compose input {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .emoji-picker {
+            position: absolute;
+            right: 16px;
+            bottom: 70px;
+            z-index: 20;
+            display: grid;
+            grid-template-columns: repeat(6, 38px);
+            gap: 4px;
+            padding: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+
+        .emoji-picker[hidden] {
+            display: none;
+        }
+
+        .emoji-picker button {
+            width: 38px;
+            height: 38px;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            font-size: 21px;
+            cursor: pointer;
+        }
+
+        .emoji-picker button:hover {
+            background: var(--bg-card-sub);
+        }
+
+        .nav-item {
+            position: relative;
+        }
+
+        .inbox-badge {
+            display: inline-flex;
+            min-width: 18px;
+            height: 18px;
+            align-items: center;
+            justify-content: center;
+            padding: 0 5px;
+            border-radius: 9px;
+            background: #d92d20;
+            color: #fff;
+            font-size: 10px;
+            line-height: 1;
+            font-weight: 700;
+        }
+
+        .nav-item .inbox-badge {
+            position: absolute;
+            top: -5px;
+            left: calc(50% + 5px);
+        }
+
+        .conversation-unread {
+            align-self: center;
+            margin-left: auto;
+        }
+
+        .notification-toast {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            z-index: 10001;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            width: min(360px, calc(100vw - 32px));
+            padding: 12px 14px;
+            background: var(--bg-card);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--accent-blue);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+
+        .notification-toast[hidden] {
+            display: none;
+        }
+
+        .notification-toast-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .notification-toast-title {
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .notification-toast-message {
+            overflow: hidden;
+            margin-top: 3px;
+            color: var(--text-muted);
+            font-size: 12px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .notification-toast button {
+            border: 0;
+            background: transparent;
+            color: var(--accent-blue);
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
         .messages-container {
             max-height: 250px;
             overflow-y: auto;
@@ -674,6 +802,15 @@
         </div>
     </div>
 
+    <div id="notificationToast" class="notification-toast" role="status" aria-live="polite" hidden>
+        <div class="notification-toast-content">
+            <div id="notificationToastTitle" class="notification-toast-title">New message</div>
+            <div id="notificationToastMessage" class="notification-toast-message"></div>
+        </div>
+        <button type="button" onclick="openNotificationConversation()">Open</button>
+        <button type="button" aria-label="Dismiss notification" onclick="dismissMessageToast()">Close</button>
+    </div>
+
     <div class="app-viewport">
         <div class="header">
             <div class="logo">askme</div>
@@ -803,8 +940,29 @@
 
                 <div class="messages-container" id="chatMessages" aria-live="polite"></div>
 
-                <div style="display: flex; gap: 8px;">
-                    <input type="text" id="dmInput" placeholder="Type a message..." maxlength="2000" onkeypress="if(event.key==='Enter') sendDM()" />
+                <div id="emojiPicker" class="emoji-picker" aria-label="Choose an emoji" hidden>
+                    <button type="button" onclick="insertEmoji('😀')">😀</button>
+                    <button type="button" onclick="insertEmoji('😂')">😂</button>
+                    <button type="button" onclick="insertEmoji('🥰')">🥰</button>
+                    <button type="button" onclick="insertEmoji('😍')">😍</button>
+                    <button type="button" onclick="insertEmoji('😊')">😊</button>
+                    <button type="button" onclick="insertEmoji('😉')">😉</button>
+                    <button type="button" onclick="insertEmoji('😭')">😭</button>
+                    <button type="button" onclick="insertEmoji('😎')">😎</button>
+                    <button type="button" onclick="insertEmoji('🤔')">🤔</button>
+                    <button type="button" onclick="insertEmoji('🙌')">🙌</button>
+                    <button type="button" onclick="insertEmoji('👏')">👏</button>
+                    <button type="button" onclick="insertEmoji('🙏')">🙏</button>
+                    <button type="button" onclick="insertEmoji('❤️')">❤️</button>
+                    <button type="button" onclick="insertEmoji('👍')">👍</button>
+                    <button type="button" onclick="insertEmoji('🔥')">🔥</button>
+                    <button type="button" onclick="insertEmoji('🎉')">🎉</button>
+                    <button type="button" onclick="insertEmoji('✨')">✨</button>
+                    <button type="button" onclick="insertEmoji('💯')">💯</button>
+                </div>
+                <div class="chat-compose">
+                    <button class="btn-secondary" type="button" onclick="toggleEmojiPicker()" aria-label="Choose emoji" title="Choose emoji">😀</button>
+                    <input type="text" id="dmInput" placeholder="Type a message..." maxlength="2000" onkeydown="if(event.key==='Enter') sendDM()" />
                     <button class="btn-sm" onclick="sendDM()"><i class="fa-solid fa-paper-plane"></i></button>
                 </div>
             </div>
@@ -878,13 +1036,17 @@
                     <i class="fa-solid fa-chevron-right" style="color: var(--text-muted); font-size: 12px;"></i>
                 </div>
 
-                <div class="setting-item" onclick="alert('Push notifications enabled!')">
+                <div class="setting-item">
                     <div class="setting-label">
                         <i class="fa-solid fa-bell left-icon"></i>
-                        <span>Push Notifications</span>
+                        <span>Message alerts</span>
                     </div>
-                    <i class="fa-solid fa-chevron-right" style="color: var(--text-muted); font-size: 12px;"></i>
+                    <label class="switch">
+                        <input type="checkbox" id="messageNotificationsToggle" onchange="toggleMessageNotifications()" />
+                        <span class="slider"></span>
+                    </label>
                 </div>
+                <div id="notificationPermissionHint" style="font-size: 12px; color: var(--text-muted); margin: 0 4px 12px;">In-app alerts are on. Enable browser alerts for desktop notifications while AskMe is open.</div>
 
                 <div class="settings-header">Login</div>
                 <div class="setting-item" onclick="logout()" style="color: #ff007f;">
@@ -909,6 +1071,7 @@
             <button class="nav-item" onclick="switchTab('inboxView', this)">
                 <i class="fa-solid fa-comment-dots nav-icon"></i>
                 <span>Inbox</span>
+                <span id="inboxBadge" class="inbox-badge" hidden>0</span>
             </button>
             <button class="nav-item" onclick="switchTab('profileView', this)">
                 <i class="fa-solid fa-user nav-icon"></i>
@@ -938,6 +1101,12 @@
         let activeChatRecipient = null;
         let userSearchTimer = null;
         let chatRefreshTimer = null;
+        let notificationPollTimer = null;
+        let toastDismissTimer = null;
+        let knownUnreadMessageIds = new Set();
+        let notificationPollInitialized = false;
+        let messageNotificationsEnabled = false;
+        let notificationConversation = null;
 
         function normalizeHandle(value) {
             return (value || '').trim().replace('@', '').toLowerCase();
@@ -1036,13 +1205,20 @@
         }
 
         window.onload = async function () {
-            await loadCurrentUser();
+            const isAuthenticated = await loadCurrentUser();
             await renderPosts();
 
             if (userState.darkMode) {
                 document.body.classList.add('dark-mode');
                 document.getElementById('darkModeToggle').checked = true;
             }
+
+            const notificationsToggle = document.getElementById('messageNotificationsToggle');
+            messageNotificationsEnabled = isAuthenticated &&
+                localStorage.getItem('askme_message_notifications') === 'true' &&
+                'Notification' in window && Notification.permission === 'granted';
+            notificationsToggle.checked = messageNotificationsEnabled;
+            if (isAuthenticated) startMessageNotificationPolling();
         };
 
         function toggleAuthMode() {
@@ -1195,6 +1371,7 @@
                 document.getElementById('authScreen').style.display = 'none';
                 updateProfileUI();
                 await renderPosts();
+                startMessageNotificationPolling();
             } catch (error) {
                 alert(error.message || 'Authentication failed.');
             }
@@ -1240,6 +1417,7 @@
 
             if (viewId === 'inboxView') {
                 loadConversations();
+                refreshMessageNotifications();
             } else if (chatRefreshTimer) {
                 clearInterval(chatRefreshTimer);
                 chatRefreshTimer = null;
@@ -1421,6 +1599,7 @@
             try {
                 const result = await fetchJson('/api/conversations');
                 list.replaceChildren();
+                updateInboxBadge(result.conversations.reduce((total, conversation) => total + conversation.unreadCount, 0));
 
                 if (!result.conversations.length) {
                     const empty = document.createElement('div');
@@ -1452,6 +1631,13 @@
                     preview.className = 'chat-preview';
                     preview.textContent = conversation.lastMessage.text;
                     details.append(name, preview);
+                    if (conversation.unreadCount > 0) {
+                        const unread = document.createElement('span');
+                        unread.className = 'inbox-badge conversation-unread';
+                        unread.textContent = conversation.unreadCount > 99 ? '99+' : String(conversation.unreadCount);
+                        unread.setAttribute('aria-label', `${conversation.unreadCount} unread messages`);
+                        details.appendChild(unread);
+                    }
                     item.append(avatar, details);
                     item.addEventListener('click', () => openChat(conversation.user));
                     list.appendChild(item);
@@ -1477,6 +1663,7 @@
                     container.appendChild(bubble);
                 });
                 container.scrollTop = container.scrollHeight;
+                refreshMessageNotifications();
             } catch (error) {
                 document.getElementById('chatMessages').textContent = error.message || 'Unable to load messages.';
             }
@@ -1491,7 +1678,9 @@
 
             document.getElementById('activeChatName').textContent = user.displayName + ' (@' + user.username + ')';
             document.getElementById('activeChatAvatar').textContent = (user.displayName || 'U').charAt(0).toUpperCase();
+            document.getElementById('emojiPicker').hidden = true;
             await loadMessages();
+            await loadConversations();
             if (chatRefreshTimer) clearInterval(chatRefreshTimer);
             chatRefreshTimer = setInterval(loadMessages, 4000);
         }
@@ -1503,6 +1692,7 @@
                 chatRefreshTimer = null;
             }
             document.getElementById('chatWindowView').classList.remove('active');
+            document.getElementById('emojiPicker').hidden = true;
             document.getElementById('chatListView').style.display = 'block';
             document.getElementById('userSearchCard').style.display = 'block';
             loadConversations();
@@ -1520,9 +1710,130 @@
                 });
                 input.value = '';
                 await loadMessages();
+                await loadConversations();
             } catch (error) {
                 alert(error.message || 'Unable to send your message.');
             }
+        }
+
+        function updateInboxBadge(unreadCount) {
+            const badge = document.getElementById('inboxBadge');
+            badge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+            badge.hidden = unreadCount < 1;
+            badge.setAttribute('aria-label', `${unreadCount} unread messages`);
+        }
+
+        function startMessageNotificationPolling() {
+            if (notificationPollTimer) clearInterval(notificationPollTimer);
+            notificationPollInitialized = false;
+            refreshMessageNotifications();
+            notificationPollTimer = setInterval(refreshMessageNotifications, 10000);
+        }
+
+        async function refreshMessageNotifications() {
+            if (!userState.id) return;
+
+            try {
+                const result = await fetchJson('/api/notifications');
+                const unreadMessages = result.messages || [];
+                updateInboxBadge(result.unreadCount || 0);
+
+                if (notificationPollInitialized) {
+                    unreadMessages.forEach((message) => {
+                        if (knownUnreadMessageIds.has(message.id)) return;
+                        showMessageToast(message);
+
+                        if (messageNotificationsEnabled && document.hidden && Notification.permission === 'granted') {
+                            const notification = new Notification(`Message from ${message.senderName}`, {
+                                body: message.text,
+                                tag: `askme-message-${message.id}`
+                            });
+                            notification.onclick = () => {
+                                window.focus();
+                                openNotificationConversation();
+                                notification.close();
+                            };
+                        }
+                    });
+                }
+
+                knownUnreadMessageIds = new Set(unreadMessages.map((message) => message.id));
+                notificationPollInitialized = true;
+            } catch (error) {
+                // Keep the rest of the app usable if notification polling fails.
+            }
+        }
+
+        function showMessageToast(message) {
+            notificationConversation = {
+                id: message.senderId,
+                displayName: message.senderName,
+                username: message.senderUsername
+            };
+            document.getElementById('notificationToastTitle').textContent = `Message from ${message.senderName}`;
+            document.getElementById('notificationToastMessage').textContent = message.text;
+            document.getElementById('notificationToast').hidden = false;
+            if (toastDismissTimer) clearTimeout(toastDismissTimer);
+            toastDismissTimer = setTimeout(dismissMessageToast, 7000);
+        }
+
+        function dismissMessageToast() {
+            document.getElementById('notificationToast').hidden = true;
+            notificationConversation = null;
+            if (toastDismissTimer) {
+                clearTimeout(toastDismissTimer);
+                toastDismissTimer = null;
+            }
+        }
+
+        function openNotificationConversation() {
+            if (!notificationConversation) return;
+            const inboxButton = document.querySelector('.nav-item[onclick*="inboxView"]');
+            switchTab('inboxView', inboxButton);
+            openChat(notificationConversation);
+            dismissMessageToast();
+        }
+
+        async function toggleMessageNotifications() {
+            const toggle = document.getElementById('messageNotificationsToggle');
+            const hint = document.getElementById('notificationPermissionHint');
+
+            if (!toggle.checked) {
+                messageNotificationsEnabled = false;
+                localStorage.setItem('askme_message_notifications', 'false');
+                hint.textContent = 'In-app alerts are on. Browser alerts are off.';
+                return;
+            }
+
+            if (!('Notification' in window)) {
+                toggle.checked = false;
+                hint.textContent = 'This browser does not support desktop notifications. In-app alerts are still on.';
+                return;
+            }
+
+            const permission = Notification.permission === 'default'
+                ? await Notification.requestPermission()
+                : Notification.permission;
+            messageNotificationsEnabled = permission === 'granted';
+            toggle.checked = messageNotificationsEnabled;
+            localStorage.setItem('askme_message_notifications', String(messageNotificationsEnabled));
+            hint.textContent = messageNotificationsEnabled
+                ? 'Browser alerts are enabled while AskMe is open.'
+                : 'Browser permission was not granted. In-app alerts are still on.';
+        }
+
+        function toggleEmojiPicker() {
+            const picker = document.getElementById('emojiPicker');
+            picker.hidden = !picker.hidden;
+        }
+
+        function insertEmoji(emoji) {
+            const input = document.getElementById('dmInput');
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            input.setRangeText(emoji, start, end, 'end');
+            input.focus();
+            document.getElementById('emojiPicker').hidden = true;
         }
 
         async function saveProfile() {
