@@ -421,6 +421,33 @@ app.get('/api/users', (req, res) => {
   res.json({ users });
 });
 
+app.get('/api/notifications', (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ message: 'You must be logged in.' });
+  }
+
+  const data = readData();
+  const currentUserId = Number(req.session.userId);
+  const unreadMessages = (Array.isArray(data.messages) ? data.messages : [])
+    .filter((message) => message.recipientId === currentUserId)
+    .filter((message) => !Array.isArray(message.readBy) || !message.readBy.includes(currentUserId))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const messages = unreadMessages.slice(0, 20).map((message) => {
+    const sender = data.accounts.find((account) => account.id === message.senderId);
+    return {
+      id: message.id,
+      senderId: message.senderId,
+      senderName: sender ? sender.displayName : 'Someone',
+      senderUsername: sender ? sender.username : '',
+      text: message.text,
+      createdAt: message.createdAt
+    };
+  });
+
+  res.json({ unreadCount: unreadMessages.length, messages });
+});
+
 app.get('/api/conversations', (req, res) => {
   if (!req.session.userId) {
     return res.status(401).json({ message: 'You must be logged in.' });
@@ -430,11 +457,16 @@ app.get('/api/conversations', (req, res) => {
   data.messages = Array.isArray(data.messages) ? data.messages : [];
   const currentUserId = Number(req.session.userId);
   const latestByUser = new Map();
+  const unreadByUser = new Map();
 
   data.messages.forEach((message) => {
     if (message.senderId !== currentUserId && message.recipientId !== currentUserId) return;
 
     const otherUserId = message.senderId === currentUserId ? message.recipientId : message.senderId;
+    if (message.recipientId === currentUserId && (!Array.isArray(message.readBy) || !message.readBy.includes(currentUserId))) {
+      unreadByUser.set(otherUserId, (unreadByUser.get(otherUserId) || 0) + 1);
+    }
+
     const previous = latestByUser.get(otherUserId);
     if (!previous || new Date(message.createdAt) > new Date(previous.createdAt)) {
       latestByUser.set(otherUserId, message);
@@ -444,7 +476,11 @@ app.get('/api/conversations', (req, res) => {
   const conversations = [...latestByUser.entries()]
     .map(([otherUserId, lastMessage]) => {
       const account = data.accounts.find((item) => item.id === otherUserId);
-      return account ? { user: sanitizeUser(account), lastMessage } : null;
+      return account ? {
+        user: sanitizeUser(account),
+        lastMessage,
+        unreadCount: unreadByUser.get(otherUserId) || 0
+      } : null;
     })
     .filter(Boolean)
     .sort((a, b) => new Date(b.lastMessage.createdAt) - new Date(a.lastMessage.createdAt));
@@ -465,14 +501,25 @@ app.get('/api/messages/:userId', (req, res) => {
     return res.status(404).json({ message: 'User not found.' });
   }
 
-  const messages = (Array.isArray(data.messages) ? data.messages : [])
+  const conversationMessages = (Array.isArray(data.messages) ? data.messages : [])
     .filter((message) =>
       (message.senderId === currentUserId && message.recipientId === otherUserId) ||
       (message.senderId === otherUserId && message.recipientId === currentUserId)
     )
     .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
-  res.json({ messages });
+  let changed = false;
+  conversationMessages.forEach((message) => {
+    if (message.recipientId !== currentUserId) return;
+    message.readBy = Array.isArray(message.readBy) ? message.readBy : [];
+    if (!message.readBy.includes(currentUserId)) {
+      message.readBy.push(currentUserId);
+      changed = true;
+    }
+  });
+
+  if (changed) writeData(data);
+  res.json({ messages: conversationMessages });
 });
 
 app.post('/api/messages/:userId', (req, res) => {
@@ -499,6 +546,7 @@ app.post('/api/messages/:userId', (req, res) => {
     senderId: currentUserId,
     recipientId: otherUserId,
     text,
+    readBy: [],
     createdAt: new Date().toISOString()
   };
 
