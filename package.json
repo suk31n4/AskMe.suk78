@@ -1,0 +1,16 @@
+{
+  "name": "askme",
+  "version": "1.1.0",
+  "description": "AskMe social Q&A platform with real backend auth and shared data",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "nodemailer": "^10.0.12",
+    "session-file-store": "^1.5.0"
+  }
+}
