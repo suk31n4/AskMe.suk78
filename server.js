@@ -123,7 +123,34 @@ function normalizeRecoveryContact(value) {
   return { type: 'phone', value: contact.startsWith('+') ? `+${digits}` : digits };
 }
 
+function hasRecoveryDelivery(contactType) {
+  if (!IS_PRODUCTION) return true;
+  if (contactType === 'email') {
+    return (process.env.SMTP_HOST && process.env.SMTP_FROM) ||
+      (process.env.RESEND_API_KEY && process.env.RESEND_FROM);
+  }
+  return process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER;
+}
+
 async function deliverRecoveryCode(contact, code) {
+  if (contact.type === 'email' && process.env.RESEND_API_KEY && process.env.RESEND_FROM) {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: process.env.RESEND_FROM,
+        to: [contact.value],
+        subject: 'Your AskMe password reset code',
+        text: `Your AskMe password reset code is ${code}. It expires in 10 minutes.`
+      })
+    });
+    if (!response.ok) throw new Error('Email provider rejected the recovery message.');
+    return;
+  }
+
   if (contact.type === 'email' && process.env.SMTP_HOST && process.env.SMTP_FROM) {
     const nodemailer = require('nodemailer');
     const transporter = nodemailer.createTransport({
@@ -324,6 +351,13 @@ app.post('/api/password/recovery/start', async (req, res) => {
     return res.status(400).json({ message: error.message });
   }
 
+  if (!hasRecoveryDelivery(contact.type)) {
+    const setup = contact.type === 'email'
+      ? 'Configure SMTP or Resend email delivery in the hosting settings.'
+      : 'Configure Twilio SMS delivery in the hosting settings.';
+    return res.status(503).json({ message: `Password recovery is not set up yet. ${setup}` });
+  }
+
   const data = readData();
   const account = data.accounts.find((item) => item.recoveryContact === contact.value);
   const genericMessage = 'If that recovery contact belongs to an account, a code has been sent.';
@@ -353,7 +387,7 @@ app.post('/api/password/recovery/start', async (req, res) => {
     await deliverRecoveryCode(contact, code);
   } catch (error) {
     console.error('Password recovery delivery failed:', error.message);
-    return res.json({ message: genericMessage });
+    return res.status(503).json({ message: 'We could not send a recovery code right now. Please try again later.' });
   }
 
   writeData(data);

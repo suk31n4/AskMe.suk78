@@ -26,7 +26,7 @@ The `render.yaml` Blueprint configures a free Node web service, a generated sess
 
 1. Push this project to a GitHub repository. Do not commit `.env`, credentials, or private user data.
 2. In Render, create a new **Blueprint** and connect that GitHub repository. Render reads `render.yaml` and provisions the service.
-3. Add SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`) or Twilio settings (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`) in the Render service environment before relying on password recovery.
+3. Add an email provider in the Render service environment before relying on password recovery: SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`) or Resend (`RESEND_API_KEY`, `RESEND_FROM`). `RESEND_FROM` must use a sender/domain verified in Resend. For phone recovery, configure Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`). Keep provider secrets in Render, never in GitHub.
 4. Use the stable `*.onrender.com` URL shown in the Render dashboard. A custom domain must be purchased separately and connected in Render.
 
 Publishing still requires a Render account and a GitHub repository. File-backed sessions are on the ephemeral service filesystem, so users may need to log in again after a restart or redeploy.
@@ -39,6 +39,6 @@ The Inbox shows unread message counts and in-app alerts while AskMe is open. Use
 
 New accounts need a recovery email address or phone number. Existing users can add one in **Profile → Edit Profile Details**. Recovery codes expire after 10 minutes and allow up to five attempts.
 
-For local development without a delivery provider, the one-time code is printed in the server terminal. For email delivery, configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM`. For SMS delivery, configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER`.
+For local development without a delivery provider, the one-time code is printed in the server terminal. For email delivery, configure either SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`) or Resend (`RESEND_API_KEY`, `RESEND_FROM`). For SMS delivery, configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER`. The reset screen reports when production delivery is not configured instead of pretending a code was sent.
 
 For production password recovery, configure a real delivery provider. Local development uses the project's `data` directory.
