@@ -35,6 +35,10 @@ Publishing still requires a Render account and a GitHub repository. File-backed 
 
 The Inbox shows unread message counts and in-app alerts while AskMe is open. Users can enable optional browser notifications under **Profile → Settings and Privacy → Message alerts**; browser permission is required. The chat composer includes an emoji picker. This is polling-based and does not send notifications while the site is closed.
 
+## Attachments and voice notes
+
+**AskMe** questions, **AnsBox** answers, and Inbox messages support one attachment per submission: images, audio, MP4/WebM video, PDF, or plain text, up to 10 MB. Voice notes use the browser microphone and require microphone permission; if recording is unavailable, choose an audio file instead. Inbox attachment links are restricted to the two conversation participants. Uploads live under the app data directory; the free Render filesystem is temporary, so media can disappear after a restart or redeploy.
+
 ## Password recovery
 
 New accounts need a recovery email address or phone number. Existing users can add one in **Profile → Edit Profile Details**. Recovery codes expire after 10 minutes and allow up to five attempts.

@@ -1,6 +1,7 @@
 const express = require('express');
 const session = require('express-session');
 const FileStore = require('session-file-store')(session);
+const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -9,6 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
+const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const SESSION_SECRET = process.env.SESSION_SECRET || (IS_PRODUCTION ? '' : 'askme-local-development-secret');
@@ -223,9 +225,107 @@ function sanitizePost(post) {
     anonymous: !!post.anonymous,
     likes: Number(post.likes || 0),
     likedBy: Array.isArray(post.likedBy) ? post.likedBy : [],
-    answers: Array.isArray(post.answers) ? post.answers : [],
+    attachment: post.attachment || null,
+    answers: Array.isArray(post.answers)
+      ? post.answers.map((answer) => ({ ...answer, attachment: answer.attachment || null }))
+      : [],
     createdAt: post.createdAt
   };
+}
+
+const ALLOWED_UPLOAD_TYPES = new Map([
+  ['image/jpeg', '.jpg'],
+  ['image/png', '.png'],
+  ['image/gif', '.gif'],
+  ['image/webp', '.webp'],
+  ['audio/webm', '.webm'],
+  ['audio/ogg', '.ogg'],
+  ['audio/mpeg', '.mp3'],
+  ['audio/wav', '.wav'],
+  ['audio/mp4', '.m4a'],
+  ['video/mp4', '.mp4'],
+  ['video/webm', '.webm'],
+  ['application/pdf', '.pdf'],
+  ['text/plain', '.txt']
+]);
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, callback) => {
+      fs.mkdir(UPLOAD_DIR, { recursive: true }, (error) => callback(error, UPLOAD_DIR));
+    },
+    filename: (req, file, callback) => {
+      const mimeType = file.mimetype.split(';')[0].trim().toLowerCase();
+      const extension = ALLOWED_UPLOAD_TYPES.get(mimeType);
+      callback(null, `${crypto.randomBytes(24).toString('hex')}${extension}`);
+    }
+  }),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 10, parts: 11, fieldSize: 2 * 1024 * 1024 },
+  fileFilter: (req, file, callback) => {
+    const mimeType = file.mimetype.split(';')[0].trim().toLowerCase();
+    if (!ALLOWED_UPLOAD_TYPES.has(mimeType)) {
+      const error = new Error('Unsupported file type. Upload an image, audio, video, PDF, or text file.');
+      error.code = 'UNSUPPORTED_FILE_TYPE';
+      callback(error);
+      return;
+    }
+    callback(null, true);
+  }
+});
+
+function requireAuth(req, res, next) {
+  if (!req.session.userId) {
+    return res.status(401).json({ message: 'You must be logged in.' });
+  }
+  next();
+}
+
+function attachmentFromUpload(file) {
+  if (!file) return null;
+  const mimeType = file.mimetype.split(';')[0].trim().toLowerCase();
+  const originalName = path.basename(String(file.originalname).replace(/\\/g, '/'))
+    .replace(/[^a-zA-Z0-9._ ()-]/g, '_')
+    .slice(0, 120) || 'attachment';
+
+  return {
+    fileId: file.filename,
+    fileName: originalName,
+    mimeType,
+    size: file.size,
+    url: `/api/uploads/${file.filename}`
+  };
+}
+
+function removeUploadedFile(file) {
+  if (file) fs.unlink(file.path, () => {});
+}
+
+function getAttachmentUse(data, fileId) {
+  for (const post of data.posts || []) {
+    if (post.attachment && post.attachment.fileId === fileId) return { isPublic: true };
+    for (const answer of post.answers || []) {
+      if (answer.attachment && answer.attachment.fileId === fileId) return { isPublic: true };
+    }
+  }
+
+  for (const message of data.messages || []) {
+    if (message.attachment && message.attachment.fileId === fileId) {
+      return { isPublic: false, message };
+    }
+  }
+
+  return null;
+}
+
+function parseSingleUpload(fieldName) {
+  return (req, res, next) => upload.single(fieldName)(req, res, (error) => {
+    if (!error) return next();
+    const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    const message = error.code === 'LIMIT_FILE_SIZE'
+      ? 'Files must be 10 MB or smaller.'
+      : error.message || 'Unable to process this upload.';
+    res.status(status).json({ message });
+  });
 }
 
 app.use(express.json({ limit: '2mb' }));
@@ -249,6 +349,36 @@ app.use(
     }
   })
 );
+
+app.get('/api/uploads/:fileId', (req, res) => {
+  const fileId = String(req.params.fileId || '');
+  if (!/^[a-f0-9]{48}\.(jpg|png|gif|webp|webm|ogg|mp3|wav|m4a|mp4|pdf|txt)$/.test(fileId)) {
+    return res.status(404).end();
+  }
+
+  const data = readData();
+  const usage = getAttachmentUse(data, fileId);
+  if (!usage) return res.status(404).end();
+  if (!usage.isPublic && (!req.session.userId ||
+      (Number(req.session.userId) !== usage.message.senderId && Number(req.session.userId) !== usage.message.recipientId))) {
+    return res.status(404).end();
+  }
+
+  const attachmentPath = path.join(UPLOAD_DIR, fileId);
+  const attachment = usage.isPublic
+    ? [...(data.posts || []).flatMap((post) => [post.attachment, ...(post.answers || []).map((answer) => answer.attachment)])]
+      .find((item) => item && item.fileId === fileId)
+    : usage.message.attachment;
+  const isMedia = attachment && /^(image|audio|video)\//.test(attachment.mimeType);
+
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Content-Security-Policy', "default-src 'none'; sandbox");
+  res.type(attachment ? attachment.mimeType : 'application/octet-stream');
+  res.set('Content-Disposition', `${isMedia ? 'inline' : 'attachment'}; filename="${path.basename(attachment.fileName)}"`);
+  res.sendFile(attachmentPath, (error) => {
+    if (error && !res.headersSent) res.status(error.statusCode || 404).end();
+  });
+});
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', app: 'AskMe' });
@@ -474,7 +604,7 @@ app.get('/api/notifications', (req, res) => {
       senderId: message.senderId,
       senderName: sender ? sender.displayName : 'Someone',
       senderUsername: sender ? sender.username : '',
-      text: message.text,
+      text: message.text || (message.attachment ? `Attachment: ${message.attachment.fileName}` : ''),
       createdAt: message.createdAt
     };
   });
@@ -556,21 +686,20 @@ app.get('/api/messages/:userId', (req, res) => {
   res.json({ messages: conversationMessages });
 });
 
-app.post('/api/messages/:userId', (req, res) => {
-  if (!req.session.userId) {
-    return res.status(401).json({ message: 'You must be logged in.' });
-  }
-
+app.post('/api/messages/:userId', requireAuth, parseSingleUpload('attachment'), (req, res) => {
   const currentUserId = Number(req.session.userId);
   const otherUserId = Number(req.params.userId);
   const text = String((req.body || {}).text || '').trim();
+  const attachment = attachmentFromUpload(req.file);
   const data = readData();
   const otherUser = data.accounts.find((account) => account.id === otherUserId);
 
   if (!otherUser || otherUserId === currentUserId) {
+    removeUploadedFile(req.file);
     return res.status(404).json({ message: 'User not found.' });
   }
-  if (!text || text.length > 2000) {
+  if ((!text && !attachment) || text.length > 2000) {
+    removeUploadedFile(req.file);
     return res.status(400).json({ message: 'Messages must be between 1 and 2000 characters.' });
   }
 
@@ -580,6 +709,7 @@ app.post('/api/messages/:userId', (req, res) => {
     senderId: currentUserId,
     recipientId: otherUserId,
     text,
+    attachment,
     readBy: [],
     createdAt: new Date().toISOString()
   };
@@ -595,29 +725,31 @@ app.get('/api/posts', (req, res) => {
   res.json({ posts: posts.map(sanitizePost) });
 });
 
-app.post('/api/posts', (req, res) => {
-  if (!req.session.userId) {
-    return res.status(401).json({ message: 'You must be logged in.' });
-  }
-
+app.post('/api/posts', requireAuth, parseSingleUpload('attachment'), (req, res) => {
   const { text, category, anonymous } = req.body || {};
-  if (!text || !String(text).trim()) {
+  const questionText = String(text || '').trim();
+  const isAnonymous = anonymous === true || anonymous === 'true';
+  const attachment = attachmentFromUpload(req.file);
+  if (!questionText && !attachment) {
+    removeUploadedFile(req.file);
     return res.status(400).json({ message: 'Question text is required.' });
   }
 
   const data = readData();
   const user = data.accounts.find((account) => account.id === Number(req.session.userId));
   if (!user) {
+    removeUploadedFile(req.file);
     return res.status(401).json({ message: 'User not found.' });
   }
 
   const newPost = {
     id: Date.now(),
-    authorName: anonymous ? 'Anonymous' : user.displayName,
-    authorUsername: anonymous ? null : user.username,
+    authorName: isAnonymous ? 'Anonymous' : user.displayName,
+    authorUsername: isAnonymous ? null : user.username,
     category: category || 'General',
-    text: String(text).trim(),
-    anonymous: !!anonymous,
+    text: questionText,
+    attachment,
+    anonymous: isAnonymous,
     likes: 0,
     likedBy: [],
     answers: [],
@@ -630,24 +762,25 @@ app.post('/api/posts', (req, res) => {
   res.status(201).json({ post: sanitizePost(newPost) });
 });
 
-app.post('/api/posts/:id/answers', (req, res) => {
-  if (!req.session.userId) {
-    return res.status(401).json({ message: 'You must be logged in.' });
-  }
-
+app.post('/api/posts/:id/answers', requireAuth, parseSingleUpload('attachment'), (req, res) => {
   const { text } = req.body || {};
-  if (!text || !String(text).trim()) {
+  const answerText = String(text || '').trim();
+  const attachment = attachmentFromUpload(req.file);
+  if (!answerText && !attachment) {
+    removeUploadedFile(req.file);
     return res.status(400).json({ message: 'Answer text is required.' });
   }
 
   const data = readData();
   const user = data.accounts.find((account) => account.id === Number(req.session.userId));
   if (!user) {
+    removeUploadedFile(req.file);
     return res.status(401).json({ message: 'User not found.' });
   }
 
   const post = data.posts.find((item) => item.id === Number(req.params.id));
   if (!post) {
+    removeUploadedFile(req.file);
     return res.status(404).json({ message: 'Post not found.' });
   }
 
@@ -655,7 +788,8 @@ app.post('/api/posts/:id/answers', (req, res) => {
     id: Date.now(),
     authorName: user.displayName,
     authorUsername: user.username,
-    text: String(text).trim()
+    text: answerText,
+    attachment
   });
 
   writeData(data);
