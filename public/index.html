@@ -438,6 +438,63 @@
             flex: 1;
         }
 
+        .attachment-controls {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .attachment-input {
+            max-width: 100%;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .recording-status {
+            min-width: 0;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .recording-status.recording {
+            color: #d92d20;
+            font-weight: 700;
+        }
+
+        .attachment-preview {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+            margin-top: 8px;
+            overflow-wrap: anywhere;
+        }
+
+        .attachment-preview img,
+        .attachment-preview video {
+            display: block;
+            max-width: min(100%, 360px);
+            max-height: 320px;
+            border-radius: 8px;
+        }
+
+        .attachment-preview audio {
+            width: min(100%, 360px);
+        }
+
+        .attachment-link {
+            color: var(--accent-blue);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .attachment-caption {
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+
         .emoji-picker {
             position: absolute;
             right: 16px;
@@ -829,7 +886,13 @@
             </div>
 
             <div class="card">
+                <h4 style="margin-bottom: 10px;">AskMe</h4>
                 <textarea id="questionInput" rows="3" placeholder="What's on your mind? Ask away..."></textarea>
+                <div class="attachment-controls">
+                    <input class="attachment-input" type="file" id="questionAttachment" accept="image/*,audio/*,video/mp4,video/webm,application/pdf,text/plain" aria-label="Attach a file to your AskMe question" onchange="showSelectedFile(this)" />
+                    <button class="btn-secondary" type="button" data-file-input="questionAttachment" onclick="toggleVoiceRecording(this)">Record voice note</button>
+                    <span class="recording-status" data-recording-status="questionAttachment" aria-live="polite"></span>
+                </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
                     <label style="font-size: 13px; color: var(--text-muted); cursor: pointer;">
                         <input type="checkbox" id="anonToggle" /> Ask Anonymously
@@ -964,6 +1027,11 @@
                     <button class="btn-secondary" type="button" onclick="toggleEmojiPicker()" aria-label="Choose emoji" title="Choose emoji">😀</button>
                     <input type="text" id="dmInput" placeholder="Type a message..." maxlength="2000" onkeydown="if(event.key==='Enter') sendDM()" />
                     <button class="btn-sm" onclick="sendDM()"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+                <div class="attachment-controls">
+                    <input class="attachment-input" type="file" id="chatAttachment" accept="image/*,audio/*,video/mp4,video/webm,application/pdf,text/plain" aria-label="Attach a file to your message" onchange="showSelectedFile(this)" />
+                    <button class="btn-secondary" type="button" data-file-input="chatAttachment" onclick="toggleVoiceRecording(this)">Record voice note</button>
+                    <span class="recording-status" data-recording-status="chatAttachment" aria-live="polite"></span>
                 </div>
             </div>
         </div>
@@ -1107,6 +1175,7 @@
         let notificationPollInitialized = false;
         let messageNotificationsEnabled = false;
         let notificationConversation = null;
+        const activeRecordings = new Map();
 
         function normalizeHandle(value) {
             return (value || '').trim().replace('@', '').toLowerCase();
@@ -1114,7 +1183,7 @@
 
         async function fetchJson(url, options = {}) {
             const response = await fetch(url, {
-                headers: { 'Content-Type': 'application/json' },
+                headers: options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' },
                 ...options
             });
 
@@ -1124,6 +1193,136 @@
             }
 
             return payload;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[character]);
+        }
+
+        function createAttachmentElement(attachment) {
+            if (!attachment || !/^[a-f0-9]{48}\.(jpg|png|gif|webp|webm|ogg|mp3|wav|m4a|mp4|pdf|txt)$/.test(attachment.fileId || '')) {
+                return null;
+            }
+
+            const url = `/api/uploads/${encodeURIComponent(attachment.fileId)}`;
+            const preview = document.createElement('div');
+            preview.className = 'attachment-preview';
+            const mimeType = String(attachment.mimeType || 'application/octet-stream');
+
+            if (mimeType.startsWith('image/')) {
+                const image = document.createElement('img');
+                image.src = url;
+                image.alt = attachment.fileName || 'Uploaded image';
+                image.loading = 'lazy';
+                preview.appendChild(image);
+            } else if (mimeType.startsWith('audio/')) {
+                const player = document.createElement('audio');
+                player.controls = true;
+                player.preload = 'none';
+                player.src = url;
+                preview.appendChild(player);
+            } else if (mimeType.startsWith('video/')) {
+                const player = document.createElement('video');
+                player.controls = true;
+                player.preload = 'metadata';
+                player.src = url;
+                preview.appendChild(player);
+            }
+
+            const link = document.createElement('a');
+            link.className = 'attachment-link';
+            link.href = url;
+            link.textContent = attachment.fileName || 'Download attachment';
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            if (!mimeType.startsWith('image/') && !mimeType.startsWith('audio/') && !mimeType.startsWith('video/')) {
+                link.download = attachment.fileName || 'attachment';
+            }
+            preview.appendChild(link);
+
+            if (Number.isFinite(Number(attachment.size))) {
+                const size = document.createElement('span');
+                size.className = 'attachment-caption';
+                size.textContent = `${Math.max(1, Math.round(Number(attachment.size) / 1024))} KB`;
+                preview.appendChild(size);
+            }
+            return preview;
+        }
+
+        function attachmentMarkup(attachment) {
+            return createAttachmentElement(attachment)?.outerHTML || '';
+        }
+
+        function showSelectedFile(input) {
+            const status = document.querySelector(`[data-recording-status="${input.id}"]`);
+            const file = input.files && input.files[0];
+            if (status) {
+                status.classList.remove('recording');
+                status.textContent = file ? `${file.name} (${Math.max(1, Math.round(file.size / 1024))} KB)` : '';
+            }
+        }
+
+        async function toggleVoiceRecording(button) {
+            const input = document.getElementById(button.dataset.fileInput);
+            const status = document.querySelector(`[data-recording-status="${input.id}"]`);
+            const existing = activeRecordings.get(input.id);
+
+            if (existing) {
+                existing.recorder.stop();
+                button.disabled = true;
+                button.textContent = 'Saving voice note...';
+                return;
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+                alert('Voice recording is not supported by this browser. You can still upload an audio file.');
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+                const mimeType = preferredTypes.find((type) => MediaRecorder.isTypeSupported(type));
+                const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+                const chunks = [];
+                recorder.addEventListener('dataavailable', (event) => {
+                    if (event.data && event.data.size) chunks.push(event.data);
+                });
+                recorder.addEventListener('stop', () => {
+                    const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+                    const extension = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'm4a' : 'webm';
+                    const voiceNote = new File([blob], `voice-note-${Date.now()}.${extension}`, { type: blob.type });
+                    const transfer = new DataTransfer();
+                    transfer.items.add(voiceNote);
+                    input.files = transfer.files;
+                    stream.getTracks().forEach((track) => track.stop());
+                    activeRecordings.delete(input.id);
+                    button.disabled = false;
+                    button.textContent = 'Record again';
+                    if (status) {
+                        status.classList.remove('recording');
+                        status.textContent = `Voice note ready (${Math.max(1, Math.round(blob.size / 1024))} KB)`;
+                    }
+                }, { once: true });
+
+                activeRecordings.set(input.id, { recorder, stream });
+                recorder.start();
+                button.textContent = 'Stop recording';
+                if (status) {
+                    status.classList.add('recording');
+                    status.textContent = 'Recording...';
+                }
+            } catch (error) {
+                alert(error.name === 'NotAllowedError'
+                    ? 'Allow microphone access in your browser to record a voice note.'
+                    : 'Unable to start voice recording. You can upload an audio file instead.');
+            }
         }
 
         async function loadCurrentUser() {
@@ -1165,14 +1364,16 @@
                 const card = document.createElement('div');
                 card.className = 'card';
                 card.setAttribute('data-category', post.category);
-                card.setAttribute('data-post-id', post.id);
+                const postId = Number(post.id);
+                card.setAttribute('data-post-id', postId);
 
                 const isLiked = Array.isArray(post.likedBy) && post.likedBy.includes(Number(userState.id || 0));
-                const authorDisplay = post.anonymous ? 'Anonymous' : (post.authorUsername ? '@' + post.authorUsername : post.authorName);
+                const authorDisplay = escapeHtml(post.anonymous ? 'Anonymous' : (post.authorUsername ? '@' + post.authorUsername : post.authorName));
                 const answerMarkup = (post.answers || []).map(answer => `
                     <div class="answer-item">
-                        <span class="answer-author">${answer.authorName || answer.author || 'User'} answered:</span>
-                        ${answer.text}
+                        <span class="answer-author">${escapeHtml(answer.authorName || answer.author || 'User')} answered:</span>
+                        <div>${escapeHtml(answer.text)}</div>
+                        ${attachmentMarkup(answer.attachment)}
                     </div>
                 `).join('');
 
@@ -1182,16 +1383,23 @@
                 card.innerHTML = `
                     <div class="card-meta">
                         <span>Asked by <strong>${authorDisplay}</strong></span>
-                        <span class="category-tag">${post.category}</span>
+                        <span class="category-tag">${escapeHtml(post.category)}</span>
                     </div>
-                    <div class="question-title">${post.text}</div>
+                    <div class="question-title">${escapeHtml(post.text)}</div>
+                    ${attachmentMarkup(post.attachment)}
                     <div class="action-bar">
                         <button class="action-btn ${likedClass}" onclick="toggleLike(this)"><i class="${likedIconClass}"></i> <span class="like-cnt">${post.likes}</span></button>
                         <button class="action-btn" onclick="toggleReply(this)"><i class="fa-regular fa-comment"></i> Answer</button>
                         <button class="action-btn" onclick="shareQuestion()"><i class="fa-solid fa-arrow-turn-up"></i> Share</button>
                     </div>
                     <div class="reply-box">
+                        <strong class="ansbox-label">AnsBox</strong>
                         <textarea rows="2" placeholder="Write your answer..."></textarea>
+                        <div class="attachment-controls">
+                            <input class="attachment-input" type="file" id="answerAttachment-${postId}" accept="image/*,audio/*,video/mp4,video/webm,application/pdf,text/plain" aria-label="Attach a file to your AnsBox answer" onchange="showSelectedFile(this)" />
+                            <button class="btn-secondary" type="button" data-file-input="answerAttachment-${postId}" onclick="toggleVoiceRecording(this)">Record voice note</button>
+                            <span class="recording-status" data-recording-status="answerAttachment-${postId}" aria-live="polite"></span>
+                        </div>
                         <button class="btn-sm" style="margin-top: 8px;" onclick="submitAnswer(this)">Post Answer</button>
                     </div>
                     <div class="answers-list">${answerMarkup}</div>
@@ -1428,21 +1636,26 @@
             const input = document.getElementById('questionInput');
             const text = input.value.trim();
             const isAnon = document.getElementById('anonToggle').checked;
+            const attachmentInput = document.getElementById('questionAttachment');
 
-            if (!text) return;
+            if (!text && !attachmentInput.files.length) return;
 
             try {
                 const category = currentCategory === 'All' ? 'General' : currentCategory;
+                const formData = new FormData();
+                formData.append('text', text);
+                formData.append('category', category);
+                formData.append('anonymous', String(isAnon));
+                if (attachmentInput.files[0]) formData.append('attachment', attachmentInput.files[0]);
+
                 await fetchJson('/api/posts', {
                     method: 'POST',
-                    body: JSON.stringify({
-                        text,
-                        category,
-                        anonymous: isAnon
-                    })
+                    body: formData
                 });
 
                 input.value = '';
+                attachmentInput.value = '';
+                showSelectedFile(attachmentInput);
                 document.getElementById('anonToggle').checked = false;
                 userState.askedCount++;
                 updateProfileUI();
@@ -1462,19 +1675,27 @@
             const replyBox = btn.closest('.reply-box');
             const textarea = replyBox.querySelector('textarea');
             const answerText = textarea.value.trim();
+            const attachmentInput = replyBox.querySelector('input[type="file"]');
 
-            if (!answerText) return;
+            if (!answerText && !(attachmentInput && attachmentInput.files.length)) return;
 
             try {
                 const card = btn.closest('.card');
                 const postId = Number(card.getAttribute('data-post-id'));
+                const formData = new FormData();
+                formData.append('text', answerText);
+                if (attachmentInput && attachmentInput.files[0]) formData.append('attachment', attachmentInput.files[0]);
 
                 await fetchJson(`/api/posts/${postId}/answers`, {
                     method: 'POST',
-                    body: JSON.stringify({ text: answerText })
+                    body: formData
                 });
 
                 textarea.value = '';
+                if (attachmentInput) {
+                    attachmentInput.value = '';
+                    showSelectedFile(attachmentInput);
+                }
                 replyBox.classList.remove('active');
 
                 userState.answeredCount++;
@@ -1629,7 +1850,8 @@
                     name.textContent = conversation.user.displayName + ' (@' + conversation.user.username + ')';
                     const preview = document.createElement('span');
                     preview.className = 'chat-preview';
-                    preview.textContent = conversation.lastMessage.text;
+                    preview.textContent = conversation.lastMessage.text ||
+                        (conversation.lastMessage.attachment ? `Attachment: ${conversation.lastMessage.attachment.fileName}` : '');
                     details.append(name, preview);
                     if (conversation.unreadCount > 0) {
                         const unread = document.createElement('span');
@@ -1659,7 +1881,13 @@
                 result.messages.forEach((message) => {
                     const bubble = document.createElement('div');
                     bubble.className = 'msg-bubble ' + (message.senderId === Number(userState.id) ? 'sent' : 'received');
-                    bubble.textContent = message.text;
+                    if (message.text) {
+                        const text = document.createElement('div');
+                        text.textContent = message.text;
+                        bubble.appendChild(text);
+                    }
+                    const attachment = createAttachmentElement(message.attachment);
+                    if (attachment) bubble.appendChild(attachment);
                     container.appendChild(bubble);
                 });
                 container.scrollTop = container.scrollHeight;
@@ -1701,14 +1929,20 @@
         async function sendDM() {
             const input = document.getElementById('dmInput');
             const text = input.value.trim();
-            if (!text || !activeChatRecipient) return;
+            const attachmentInput = document.getElementById('chatAttachment');
+            if ((!text && !attachmentInput.files.length) || !activeChatRecipient) return;
 
             try {
+                const formData = new FormData();
+                formData.append('text', text);
+                if (attachmentInput.files[0]) formData.append('attachment', attachmentInput.files[0]);
                 await fetchJson(`/api/messages/${activeChatRecipient.id}`, {
                     method: 'POST',
-                    body: JSON.stringify({ text })
+                    body: formData
                 });
                 input.value = '';
+                attachmentInput.value = '';
+                showSelectedFile(attachmentInput);
                 await loadMessages();
                 await loadConversations();
             } catch (error) {
@@ -1771,7 +2005,7 @@
                 username: message.senderUsername
             };
             document.getElementById('notificationToastTitle').textContent = `Message from ${message.senderName}`;
-            document.getElementById('notificationToastMessage').textContent = message.text;
+            document.getElementById('notificationToastMessage').textContent = message.text || 'Sent you an attachment';
             document.getElementById('notificationToast').hidden = false;
             if (toastDismissTimer) clearTimeout(toastDismissTimer);
             toastDismissTimer = setTimeout(dismissMessageToast, 7000);
